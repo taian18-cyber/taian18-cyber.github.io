@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ほしぞらスケッチ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#eef1ff;--ink:#141a40;--sub:#4a5190;--line:#c7cdf5;--accent:#d63a78;--chip:#ffffff;--onaccent:#ffffff;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0d1230;--ink:#eaedff;--sub:#a5adea;--line:#2a3270;--accent:#7df9c8;--chip:#171e4a;--onaccent:#0d1230}}
+:root[data-theme="dark"]{--bg:#0d1230;--ink:#eaedff;--sub:#a5adea;--line:#2a3270;--accent:#7df9c8;--chip:#171e4a;--onaccent:#0d1230}
+*{box-sizing:border-box}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Zen Maru Gothic","Hiragino Maru Gothic ProN","Yu Gothic",sans-serif;line-height:1.8}
+main{max-width:860px;margin:0 auto;padding:40px 20px 64px}
+h1{font-size:clamp(2rem,7vw,3.4rem);font-weight:900;margin:0 0 8px;letter-spacing:.04em}
+.lead{color:var(--sub);margin:0 0 24px;max-width:36em}
+.stage{position:relative;border-radius:18px;overflow:hidden;border:1px solid var(--line)}
+canvas{display:block;width:100%;height:min(62vh,520px);min-height:300px;background:#080b22;touch-action:none;cursor:crosshair}
+.hint{position:absolute;left:14px;bottom:10px;margin:0;font-size:.82rem;color:#c9d0ff;pointer-events:none}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:16px 0 0}
+button{font:inherit;font-weight:700;padding:8px 18px;border-radius:999px;border:1px solid var(--line);background:var(--chip);color:var(--ink);cursor:pointer}
+button.main{background:var(--accent);color:var(--onaccent);border-color:var(--accent)}
+button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+button[aria-pressed="true"]{border-color:var(--accent)}
+.count{margin-left:auto;color:var(--sub);font-variant-numeric:tabular-nums}
+h2{font-size:1.25rem;margin:44px 0 8px}
+p{margin:0 0 12px;max-width:40em}
+ul{margin:0;padding-left:1.3em;max-width:40em}
+li{margin-bottom:6px}
+footer{margin-top:48px;color:var(--sub);font-size:.85rem}
+</style>
+</head>
+<body>
+<main>
+  <h1>ほしぞらスケッチ</h1>
+  <p class="lead">マウスや指で動かせる、ちいさな星空です。星が集まると、星座みたいに線でつながります。</p>
+
+  <div class="stage">
+    <canvas id="sky" aria-label="動く星空のアニメーション"></canvas>
+    <p class="hint">動かす: 画面をなぞる / 星を足す: クリック・タップ</p>
+  </div>
+
+  <div class="bar">
+    <button class="main" id="add">星を増やす</button>
+    <button id="lines" aria-pressed="true">線: ON</button>
+    <button id="reset">リセット</button>
+    <span class="count" id="count" aria-live="polite">星: 0 個</span>
+  </div>
+
+  <h2>作品について</h2>
+  <p>HTML・CSS・JavaScript だけで作った作品です。星は、位置・速さ・大きさ・色を乱数で決めて、画面に生まれます。</p>
+
+  <h2>見どころ</h2>
+  <ul>
+    <li>カーソルに近い星は引き寄せられ、はなすとゆっくり散らばります。</li>
+    <li>星同士が近づくと線で結ばれ、星座のような形ができます。</li>
+    <li>クリックした場所から、星がはじけるように増えます。</li>
+  </ul>
+
+  <h2>工夫したところ</h2>
+  <ul>
+    <li>毎回キャンバスを少しだけ暗く塗り重ねて、星の軌跡（しっぽ）を残しました。</li>
+    <li>スマホでも触れるよう、マウスと指の両方を Pointer Events でまとめて扱っています。</li>
+    <li>星が増えすぎて重くならないよう、上限（260個）を決めています。</li>
+    <li>「動きを減らす」設定の人には、星のしっぽを出さない表示にしています。</li>
+  </ul>
+
+  <footer>HTML / CSS / JavaScript で制作</footer>
+</main>
+
+<script>
+(function(){
+  var cv=document.getElementById('sky'),ctx=cv.getContext('2d');
+  var W=0,H=0,stars=[],mouse={x:0,y:0,on:false},showLines=true,lastCount=-1;
+  var MAX=260,HUES=[48,165,195,325];
+  var reduce=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var countEl=document.getElementById('count');
+
+  function resize(){
+    var dpr=Math.min(window.devicePixelRatio||1,2),r=cv.getBoundingClientRect();
+    W=r.width;H=r.height;cv.width=W*dpr;cv.height=H*dpr;
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.fillStyle='#080b22';ctx.fillRect(0,0,W,H);
+  }
+  function make(x,y,burst){
+    var a=Math.random()*Math.PI*2,s=burst?1+Math.random()*2.5:Math.random()*.4;
+    return{x:x==null?Math.random()*W:x,y:y==null?Math.random()*H:y,
+      vx:Math.cos(a)*s,vy:Math.sin(a)*s,r:1+Math.random()*2.2,
+      h:HUES[Math.floor(Math.random()*HUES.length)],p:Math.random()*6.28};
+  }
+  function add(n,x,y,burst){
+    for(var i=0;i<n;i++){stars.push(make(x,y,burst));}
+    if(stars.length>MAX){stars.splice(0,stars.length-MAX);}
+  }
+  function seed(){stars=[];add(70);}
+
+  function tick(t){
+    ctx.fillStyle='rgba(8,11,34,'+(reduce?1:.28)+')';
+    ctx.fillRect(0,0,W,H);
+    var i,j,s,o;
+    for(i=0;i<stars.length;i++){
+      s=stars[i];
+      if(mouse.on){
+        var dx=mouse.x-s.x,dy=mouse.y-s.y,d=Math.hypot(dx,dy);
+        if(d<170&&d>1){var f=(1-d/170)*.07;s.vx+=dx/d*f;s.vy+=dy/d*f;}
+      }
+      s.vx=s.vx*.985+(Math.random()-.5)*.02;
+      s.vy=s.vy*.985+(Math.random()-.5)*.02;
+      s.x+=s.vx;s.y+=s.vy;
+      if(s.x<0)s.x+=W;else if(s.x>W)s.x-=W;
+      if(s.y<0)s.y+=H;else if(s.y>H)s.y-=H;
+    }
+    if(showLines){
+      ctx.lineWidth=1;
+      for(i=0;i<stars.length;i++){
+        for(j=i+1;j<stars.length;j++){
+          var a=stars[i],b=stars[j],ddx=a.x-b.x,ddy=a.y-b.y,dd=ddx*ddx+ddy*ddy;
+          if(dd<8100){
+            ctx.strokeStyle='hsla('+a.h+',90%,75%,'+(0.35*(1-dd/8100)).toFixed(3)+')';
+            ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
+          }
+        }
+      }
+    }
+    for(i=0;i<stars.length;i++){
+      s=stars[i];
+      o=.55+.45*Math.sin(t/500+s.p);
+      ctx.fillStyle='hsla('+s.h+',95%,78%,'+o.toFixed(2)+')';
+      ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,6.2832);ctx.fill();
+    }
+    if(stars.length!==lastCount){lastCount=stars.length;countEl.textContent='星: '+lastCount+' 個';}
+    requestAnimationFrame(tick);
+  }
+
+  function pos(e){var r=cv.getBoundingClientRect();mouse.x=e.clientX-r.left;mouse.y=e.clientY-r.top;}
+  cv.addEventListener('pointermove',function(e){pos(e);mouse.on=true;});
+  cv.addEventListener('pointerdown',function(e){pos(e);mouse.on=true;add(14,mouse.x,mouse.y,true);});
+  cv.addEventListener('pointerup',function(e){if(e.pointerType!=='mouse')mouse.on=false;});
+  cv.addEventListener('pointerleave',function(){mouse.on=false;});
+  cv.addEventListener('pointercancel',function(){mouse.on=false;});
+
+  document.getElementById('add').addEventListener('
